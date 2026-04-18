@@ -40,21 +40,22 @@ void get_password(WINDOW *win, int starty, int startx, char *password,
       if (pos > 0) {
         pos--;
         password[pos] = '\0';
-        // 移动光标退回，打印空格擦除星号，再把光标退回
+        // backspace (delete)
         int cur_y, cur_x;
         getyx(win, cur_y, cur_x);
         mvwaddch(win, cur_y, cur_x - 1, ' ');
         wmove(win, cur_y, cur_x - 1);
         wrefresh(win);
       }
-    } else if (pos < max_len - 1 && ch >= 32 && ch <= 126) { // 限制可打印字符
+    } else if (pos < max_len - 1 && ch >= 32 && ch <= 126) {
       password[pos++] = ch;
-      // 显示星号
+
+      // show *
       waddch(win, '*');
       wrefresh(win);
     }
   }
-  password[pos] = '\0'; // 末尾添加字符串结束符
+  password[pos] = '\0';
 }
 
 int main() {
@@ -67,25 +68,23 @@ int main() {
   nodelay(stdscr, TRUE);
   curs_set(0);
 
-  // 开启颜色
   if (has_colors()) {
     start_color();
     init_pair(1, COLOR_YELLOW, COLOR_BLACK); // Title
-    init_pair(2, COLOR_CYAN, COLOR_BLACK);   // notify
-    init_pair(3, COLOR_GREEN, COLOR_BLACK);  // selected
-    init_pair(4, COLOR_WHITE, COLOR_BLACK);  // text
+    init_pair(2, COLOR_CYAN, COLOR_BLACK);   // Notify
+    init_pair(3, COLOR_GREEN, COLOR_BLACK);  // Selected
+    init_pair(4, COLOR_WHITE, COLOR_BLACK);  // Text
   }
 
   int height = 20, width = 50;
   int starty = (rows - height) / 2, startx = (cols - width) / 2;
 
-  // 创建窗口
   WINDOW *win = newwin(height, width, starty, startx);
-
   const std::string title_str = " WiFi Manager ";
 
   std::vector<std::string> wifi = {"Scanning..."};
   std::vector<std::string> memorized = {};
+  std::vector<std::string> wifi_status;
 
   std::thread scan_thread = std::thread([&wifi]() {
     wifi = COMMAND("nmcli -t -f active,SSID dev wifi list",
@@ -96,7 +95,6 @@ int main() {
                    });
   });
 
-  std::vector<std::string> wifi_status;
   std::thread status_thread = std::thread([&memorized]() {
     memorized = COMMAND("nmcli -t -f NAME connection show");
   });
