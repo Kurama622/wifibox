@@ -162,7 +162,7 @@ int main() {
               wifi_status[highlight] = "\t...";
               std::vector<std::string> res = COMMAND(
                   ("nmcli device wifi connect '" + ssid + "' -a").c_str());
-              if (res[0].find("successfully")) {
+              if (res[0].find("successfully") != std::string::npos) {
                 wifi_status[highlight] = "\t(*)";
                 connected = true;
               }
@@ -184,7 +184,7 @@ int main() {
                          "' password '" + password + "'")
                             .c_str());
 
-            if (res[0].find("successfully")) {
+            if (res[0].find("successfully") != std::string::npos) {
               wifi_status[highlight] = "\t(*)";
               connected = true;
             }
