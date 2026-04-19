@@ -1,5 +1,5 @@
 CC = g++
-CFLAGS = -Wall -std=c++11
+CFLAGS = -Wall -std=c++11 -O3
 LDFLAGS = -lncurses -pthread
 
 TARGET = wb
