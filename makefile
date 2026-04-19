@@ -12,3 +12,6 @@ $(TARGET): $(SRC)
 
 clean:
 	rm -f $(TARGET)
+
+install:
+	cp ${TARGET} /usr/local/bin/
