@@ -7,6 +7,12 @@
 
 typedef std::vector<std::string> shell_r;
 
+constexpr const char *CLEAR = "\tclear...";
+constexpr const char *PROGRESS = "\t...";
+constexpr const char *DEFAULT = "";
+constexpr const char *CONNECTED = "\t(*)";
+constexpr const char *FAILED = "\t(failed)";
+
 shell_r COMMAND(const std::vector<std::string> &args,
                 const std::function<bool(const std::string &, const shell_r &)>
                     f = nullptr) {
@@ -142,11 +148,11 @@ int main() {
           if (initialize) {
             if (wifi[i].find("yes:") != std::string::npos) {
               wifi[i] = wifi[i].replace(0, 4, "");
-              wifi_status[i] = "\t(*)";
+              wifi_status[i] = CONNECTED;
               highlight = i;
             } else {
               wifi[i] = wifi[i].replace(0, 3, "");
-              wifi_status[i] = "";
+              wifi_status[i] = DEFAULT;
             }
           }
 
@@ -171,31 +177,42 @@ int main() {
         else if (ch == 'k')
           highlight = (highlight - 1 + wifi.size()) % wifi.size();
         else if (ch == KEY_BACKSPACE) {
-          wifi_status[highlight] = "\tclear...";
+          wifi_status[highlight] = CLEAR;
+          std::thread clear_thread = std::thread([&]() {
+            shell_r res = COMMAND(
+                {"nmcli", "connection", "delete", "'" + wifi[highlight] + "'"});
 
-          shell_r res = COMMAND(
-              {"nmcli", "connection", "delete", "'" + wifi[highlight] + "'"});
-
-          wifi_status[highlight] = "";
+            if (res.size() > 0 &&
+                res[0].find("successfully") != std::string::npos) {
+              wifi_status[highlight] = DEFAULT;
+            } else {
+              wifi_status[highlight] = FAILED;
+            }
+          });
+          clear_thread.join();
         } else if (ch == '\n') {
           bool connected = false;
 
           for (auto &ssid : memorized) {
             if (wifi[highlight] == ssid) {
               for (int i = 0; i < wifi.size(); i++) {
-                wifi_status[i] = "";
+                wifi_status[i] = DEFAULT;
               }
-              wifi_status[highlight] = "\t...";
-              shell_r res = COMMAND(
-                  {"nmcli", "device", "wifi", "connect", "'" + ssid + "'"});
 
-              if (res.size() > 0 &&
-                  res[0].find("successfully") != std::string::npos) {
-                wifi_status[highlight] = "\t(*)";
-                connected = true;
-              } else {
-                wifi_status[highlight] = "\t(failed)";
-              }
+              wifi_status[highlight] = PROGRESS;
+              std::thread connect_thread = std::thread([&]() {
+                shell_r res = COMMAND(
+                    {"nmcli", "device", "wifi", "connect", "'" + ssid + "'"});
+
+                if (res.size() > 0 &&
+                    res[0].find("successfully") != std::string::npos) {
+                  wifi_status[highlight] = CONNECTED;
+                  connected = true;
+                } else {
+                  wifi_status[highlight] = FAILED;
+                }
+              });
+              connect_thread.join();
               break;
             }
           }
@@ -207,20 +224,23 @@ int main() {
             wrefresh(win);
             get_password(win, wifi.size() + 3, 12, password, sizeof(password));
             for (int i = 0; i < wifi.size(); i++) {
-              wifi_status[i] = "";
+              wifi_status[i] = DEFAULT;
             }
-            wifi_status[highlight] = "\t...";
-            shell_r res = COMMAND({"nmcli", "dev", "wifi", "connect",
-                                   "'" + wifi[highlight] + "'", "password",
-                                   "'" + std::string(password) + "'"});
+            wifi_status[highlight] = PROGRESS;
+            std::thread connect_thread = std::thread([&]() {
+              shell_r res = COMMAND({"nmcli", "dev", "wifi", "connect",
+                                     "'" + wifi[highlight] + "'", "password",
+                                     "'" + std::string(password) + "'"});
 
-            if (res.size() > 0 &&
-                res[0].find("successfully") != std::string::npos) {
-              wifi_status[highlight] = "\t(*)";
-              connected = true;
-            } else {
-              wifi_status[highlight] = "\t(failed)";
-            }
+              if (res.size() > 0 &&
+                  res[0].find("successfully") != std::string::npos) {
+                wifi_status[highlight] = CONNECTED;
+                connected = true;
+              } else {
+                wifi_status[highlight] = FAILED;
+              }
+            });
+            connect_thread.join();
           }
         }
       }
