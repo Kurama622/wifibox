@@ -1,28 +1,44 @@
 #include <functional>
 #include <ncurses.h>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
-std::vector<std::string>
-COMMAND(const char *cmd,
-        const std::function<bool(const std::string &)> f = nullptr) {
-  std::vector<std::string> result;
-  FILE *fp = popen(cmd, "r");
-  if (!fp)
+typedef std::vector<std::string> shell_r;
+
+shell_r COMMAND(const std::vector<std::string> &args,
+                const std::function<bool(const std::string &, const shell_r &)>
+                    f = nullptr) {
+  std::stringstream cmd;
+  for (auto &arg : args) {
+    cmd << arg << " ";
+  }
+
+  cmd << "2>/dev/null";
+  shell_r result = {};
+  FILE *fp = popen(cmd.str().c_str(), "r");
+  if (!fp) {
     return result;
+  }
 
   char buf[256];
-  while (fgets(buf, sizeof(buf), fp)) {
-    std::string line(buf);
-    if (!line.empty()) {
-      line.erase(line.find_last_not_of("\n") + 1);
+  try {
+    while (fgets(buf, sizeof(buf), fp)) {
+      std::string line(buf);
+
       if (!line.empty()) {
-        if ((f && f(line)) || !f) {
-          result.push_back(line);
+        line.erase(line.find_last_not_of("\n") + 1);
+        if (!line.empty()) {
+          if ((f && f(line, result)) || !f) {
+            result.push_back(line);
+          }
         }
       }
     }
+  } catch (...) {
+    pclose(fp);
+    return result;
   }
   pclose(fp);
   return result;
@@ -87,8 +103,13 @@ int main() {
   std::vector<std::string> wifi_status;
 
   std::thread scan_thread = std::thread([&wifi]() {
-    wifi = COMMAND("nmcli -t -f active,SSID dev wifi list",
-                   [](const std::string &line) {
+    wifi = COMMAND({"nmcli", "-t", "-f", "active,SSID", "dev", "wifi", "list"},
+                   [](const std::string &line, const shell_r &result) {
+                     for (auto &item : result) {
+                       if (item == line) {
+                         return false;
+                       }
+                     }
                      if (line == "yes:" || line == "no:")
                        return false;
                      return true;
@@ -96,7 +117,7 @@ int main() {
   });
 
   std::thread status_thread = std::thread([&memorized]() {
-    memorized = COMMAND("nmcli -t -f NAME connection show");
+    memorized = COMMAND({"nmcli", "-t", "-f", "NAME", "connection", "show"});
   });
   std::thread render_thread = std::thread([&]() {
     int highlight = 0;
@@ -149,42 +170,56 @@ int main() {
           highlight = (highlight + 1) % wifi.size();
         else if (ch == 'k')
           highlight = (highlight - 1 + wifi.size()) % wifi.size();
-        else if (ch == '\n') {
+        else if (ch == KEY_BACKSPACE) {
+          wifi_status[highlight] = "\tclear...";
+
+          shell_r res = COMMAND(
+              {"nmcli", "connection", "delete", "'" + wifi[highlight] + "'"});
+
+          wifi_status[highlight] = "";
+        } else if (ch == '\n') {
           bool connected = false;
 
-          for (int i = 0; i < wifi.size(); i++) {
-            wifi_status[i] = "";
-          }
           for (auto &ssid : memorized) {
             if (wifi[highlight] == ssid) {
+              for (int i = 0; i < wifi.size(); i++) {
+                wifi_status[i] = "";
+              }
               wifi_status[highlight] = "\t...";
-              std::vector<std::string> res = COMMAND(
-                  ("nmcli device wifi connect '" + ssid + "' -a").c_str());
-              if (res[0].find("successfully") != std::string::npos) {
+              shell_r res = COMMAND(
+                  {"nmcli", "device", "wifi", "connect", "'" + ssid + "'"});
+
+              if (res.size() > 0 &&
+                  res[0].find("successfully") != std::string::npos) {
                 wifi_status[highlight] = "\t(*)";
                 connected = true;
+              } else {
+                wifi_status[highlight] = "\t(failed)";
               }
               break;
             }
           }
           if (!connected) {
             char password[128];
-            wifi_status[highlight] = "\t...";
-
             wattron(win, COLOR_PAIR(2));
             mvwprintw(win, wifi.size() + 3, 2, "Password: ");
             wattroff(win, COLOR_PAIR(2));
             wrefresh(win);
-
             get_password(win, wifi.size() + 3, 12, password, sizeof(password));
-            std::vector<std::string> res =
-                COMMAND(("nmcli dev wifi connect '" + wifi[highlight] +
-                         "' password '" + password + "'")
-                            .c_str());
+            for (int i = 0; i < wifi.size(); i++) {
+              wifi_status[i] = "";
+            }
+            wifi_status[highlight] = "\t...";
+            shell_r res = COMMAND({"nmcli", "dev", "wifi", "connect",
+                                   "'" + wifi[highlight] + "'", "password",
+                                   "'" + std::string(password) + "'"});
 
-            if (res[0].find("successfully") != std::string::npos) {
+            if (res.size() > 0 &&
+                res[0].find("successfully") != std::string::npos) {
               wifi_status[highlight] = "\t(*)";
               connected = true;
+            } else {
+              wifi_status[highlight] = "\t(failed)";
             }
           }
         }
