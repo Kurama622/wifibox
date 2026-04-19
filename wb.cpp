@@ -1,4 +1,5 @@
 #include <functional>
+#include <mutex>
 #include <ncurses.h>
 #include <sstream>
 #include <string>
@@ -21,7 +22,7 @@ shell_r COMMAND(const std::vector<std::string> &args,
     cmd << arg << " ";
   }
 
-  cmd << "2>/dev/null";
+  cmd << "2> /dev/null";
   shell_r result = {};
   FILE *fp = popen(cmd.str().c_str(), "r");
   if (!fp) {
@@ -107,8 +108,10 @@ int main() {
   std::vector<std::string> wifi = {"Scanning..."};
   std::vector<std::string> memorized = {};
   std::vector<std::string> wifi_status;
+  std::mutex mtx;
 
-  std::thread scan_thread = std::thread([&wifi]() {
+  std::thread scan_thread = std::thread([&wifi, &mtx]() {
+    std::lock_guard<std::mutex> lock(mtx);
     wifi = COMMAND({"nmcli", "-t", "-f", "active,SSID", "dev", "wifi", "list"},
                    [](const std::string &line, const shell_r &result) {
                      for (auto &item : result) {
@@ -122,7 +125,8 @@ int main() {
                    });
   });
 
-  std::thread status_thread = std::thread([&memorized]() {
+  std::thread status_thread = std::thread([&memorized, &mtx]() {
+    std::lock_guard<std::mutex> lock(mtx);
     memorized = COMMAND({"nmcli", "-t", "-f", "NAME", "connection", "show"});
   });
   std::thread render_thread = std::thread([&]() {
@@ -179,12 +183,20 @@ int main() {
         else if (ch == KEY_BACKSPACE) {
           wifi_status[highlight] = CLEAR;
           std::thread clear_thread = std::thread([&]() {
+            std::lock_guard<std::mutex> lock(mtx);
             shell_r res = COMMAND(
                 {"nmcli", "connection", "delete", "'" + wifi[highlight] + "'"});
 
             if (res.size() > 0 &&
                 res[0].find("successfully") != std::string::npos) {
               wifi_status[highlight] = DEFAULT;
+              for (auto i = memorized.begin(); i != memorized.end();) {
+                if (*i == wifi[highlight]) {
+                  i = memorized.erase(i);
+                } else {
+                  ++i;
+                }
+              }
             } else {
               wifi_status[highlight] = FAILED;
             }
@@ -201,6 +213,7 @@ int main() {
 
               wifi_status[highlight] = PROGRESS;
               std::thread connect_thread = std::thread([&]() {
+                std::lock_guard<std::mutex> lock(mtx);
                 shell_r res = COMMAND(
                     {"nmcli", "device", "wifi", "connect", "'" + ssid + "'"});
 
@@ -218,6 +231,7 @@ int main() {
           }
           if (!connected) {
             char password[128];
+            std::string ssid = wifi[highlight];
             wattron(win, COLOR_PAIR(2));
             mvwprintw(win, wifi.size() + 3, 2, "Password: ");
             wattroff(win, COLOR_PAIR(2));
@@ -228,13 +242,14 @@ int main() {
             }
             wifi_status[highlight] = PROGRESS;
             std::thread connect_thread = std::thread([&]() {
-              shell_r res = COMMAND({"nmcli", "dev", "wifi", "connect",
-                                     "'" + wifi[highlight] + "'", "password",
-                                     "'" + std::string(password) + "'"});
+              shell_r res =
+                  COMMAND({"nmcli", "dev", "wifi", "connect", "'" + ssid + "'",
+                           "password", "'" + std::string(password) + "'"});
 
               if (res.size() > 0 &&
                   res[0].find("successfully") != std::string::npos) {
                 wifi_status[highlight] = CONNECTED;
+                memorized.push_back(ssid);
                 connected = true;
               } else {
                 wifi_status[highlight] = FAILED;
