@@ -14,6 +14,16 @@ constexpr const char *DEFAULT = "";
 constexpr const char *CONNECTED = "\t(*)";
 constexpr const char *FAILED = "\t(failed)";
 
+std::wstring to_wstring(const char *str) {
+  size_t len = std::mbstowcs(nullptr, str, 0);
+  if (len == static_cast<size_t>(-1))
+    return L"";
+
+  std::wstring result(len, L'\0');
+  std::mbstowcs(&result[0], str, len + 1);
+  return result;
+}
+
 shell_r COMMAND(const std::vector<std::string> &args,
                 const std::function<bool(const std::string &, const shell_r &)>
                     f = nullptr) {
@@ -82,6 +92,7 @@ void get_password(WINDOW *win, int starty, int startx, char *password,
 }
 
 int main() {
+  setlocale(LC_ALL, "");
   initscr();
   int rows, cols;
   getmaxyx(stdscr, rows, cols);
@@ -162,11 +173,13 @@ int main() {
 
           if (i == highlight) {
             wattron(win, COLOR_PAIR(3));
-            mvwprintw(win, i + 2, 2, "%s", (wifi[i] + wifi_status[i]).c_str());
+            mvwaddwstr(win, i + 2, 2,
+                       to_wstring((wifi[i] + wifi_status[i]).c_str()).c_str());
             wattroff(win, COLOR_PAIR(3));
           } else {
             wattron(win, COLOR_PAIR(4));
-            mvwprintw(win, i + 2, 2, "%s", (wifi[i] + wifi_status[i]).c_str());
+            mvwaddwstr(win, i + 2, 2,
+                       to_wstring((wifi[i] + wifi_status[i]).c_str()).c_str());
             wattroff(win, COLOR_PAIR(4));
           }
         }
